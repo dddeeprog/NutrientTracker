@@ -8,10 +8,45 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -19,25 +54,76 @@ import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Today
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Divider
+import androidx.compose.material3.ExposedDropdownMenu
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import com.example.nutrienttrackerv1.data.*
-import kotlinx.coroutines.launch
-import java.io.OutputStreamWriter
-import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
-import androidx.compose.material.icons.filled.SmartToy
-import coil.compose.AsyncImage
-import com.example.nutrienttrackerv1.ai.*
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import com.example.nutrienttrackerv1.R
+import com.airbnb.lottie.compose.LottieAnimation
+import com.airbnb.lottie.compose.LottieCompositionSpec
+import com.airbnb.lottie.compose.animateLottieCompositionAsState
+import com.airbnb.lottie.compose.rememberLottieComposition
+import com.example.nutrienttrackerv1.ai.AiParsed
+import com.example.nutrienttrackerv1.ai.AiService
+import com.example.nutrienttrackerv1.ai.buildChatRequest
+import com.example.nutrienttrackerv1.ai.buildRetrofit
+import com.example.nutrienttrackerv1.ai.bytesToDataUrl
+import com.example.nutrienttrackerv1.ai.compressImage
+import com.example.nutrienttrackerv1.ai.parseAiJson
+import com.example.nutrienttrackerv1.data.CustomEntry
+import com.example.nutrienttrackerv1.data.DaySummary
+import com.example.nutrienttrackerv1.data.EntryWithFood
+import com.example.nutrienttrackerv1.data.Food
+import com.example.nutrienttrackerv1.data.NUTRIENTS_META
+import com.example.nutrienttrackerv1.data.NutrientMeta
+import java.io.OutputStreamWriter
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 
@@ -69,31 +155,53 @@ enum class Tab(val label: String, val icon: @Composable () -> Unit) {
 fun AppScaffold(vm: MainViewModel) {
     var tab by remember { mutableStateOf(Tab.Today) }
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text("🥗 Nutrient Tracker (Android)") }) },
-        bottomBar = {
-            NavigationBar {
-                Tab.values().forEach {
-                    NavigationBarItem(
-                        selected = tab == it,
-                        onClick = { tab = it },
-                        icon = it.icon,
-                        label = { Text(it.label) }
-                    )
+    val colorScheme = MaterialTheme.colorScheme
+    val backgroundGradient = remember(colorScheme) {
+        Brush.verticalGradient(
+            colors = listOf(
+                colorScheme.primary.copy(alpha = 0.25f),
+                colorScheme.surface,
+                colorScheme.surfaceVariant
+            )
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(backgroundGradient)
+    ) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            contentColor = colorScheme.onBackground,
+            bottomBar = {
+                NavigationBar(tonalElevation = 0.dp) {
+                    Tab.values().forEach {
+                        NavigationBarItem(
+                            selected = tab == it,
+                            onClick = { tab = it },
+                            icon = it.icon,
+                            label = { Text(it.label) }
+                        )
+                    }
                 }
             }
-        }
-    ) { inner ->
-        Box(Modifier.padding(inner)) {
-            val day by vm.day.collectAsState()
-            when (tab) {
-                Tab.Today -> TodayScreen(vm, day)
-                Tab.Add -> AddEntryScreen(vm)
-                Tab.Foods -> FoodScreen(vm)
-                Tab.Goals -> GoalsScreen(vm)
-                Tab.Export -> ExportScreen(vm)
-                Tab.Trend -> TrendScreen(vm)
-                Tab.AI -> AiScreen(vm)
+        ) { inner ->
+            Box(
+                modifier = Modifier
+                    .padding(inner)
+                    .fillMaxSize()
+            ) {
+                val day by vm.day.collectAsState()
+                when (tab) {
+                    Tab.Today -> TodayScreen(vm, day)
+                    Tab.Add -> AddEntryScreen(vm)
+                    Tab.Foods -> FoodScreen(vm)
+                    Tab.Goals -> GoalsScreen(vm)
+                    Tab.Export -> ExportScreen(vm)
+                    Tab.Trend -> TrendScreen(vm)
+                    Tab.AI -> AiScreen(vm)
+                }
             }
         }
     }
@@ -102,76 +210,554 @@ fun AppScaffold(vm: MainViewModel) {
 // ============== Screens ==============
 @Composable
 fun TodayScreen(vm: MainViewModel, day: DaySummary?) {
-    val scroll = rememberScrollState()
-    val today = vm.today.collectAsState().value
-
-    Column(Modifier.padding(16.dp).verticalScroll(scroll)) {
-        Text("日期：$today", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-
-        val state = day
-        if (state == null) {
-            Text("加载中…")
-            return
+    val listState = rememberLazyListState()
+    val today by vm.today.collectAsState()
+    val heroHeight = 260.dp
+    val density = LocalDensity.current
+    val heroHeightPx = remember(density) { with(density) { heroHeight.toPx() } }
+    val parallaxOffset by remember {
+        derivedStateOf {
+            if (listState.firstVisibleItemIndex == 0) {
+                -listState.firstVisibleItemScrollOffset / 2f
+            } else {
+                -heroHeightPx / 2f
+            }
         }
+    }
 
-        Text("进度（相对每日目标）", fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        NUTRIENTS_META.forEach { nm ->
-            val value = state.totals[nm.key] ?: 0.0
-            val target = when (nm.key) {
-                "calories_kcal" -> state.goal.calories_kcal
-                "protein_g" -> state.goal.protein_g
-                "carbs_g" -> state.goal.carbs_g
-                "fat_g" -> state.goal.fat_g
-                "fiber_g" -> state.goal.fiber_g
-                "sugar_g" -> state.goal.sugar_g
-                "sodium_mg" -> state.goal.sodium_mg
-                "calcium_mg" -> state.goal.calcium_mg
-                "iron_mg" -> state.goal.iron_mg
-                "vitamin_c_mg" -> state.goal.vitamin_c_mg
-                else -> 0.0
-            } ?: 0.0
-            val ratio = if (target <= 0) 0f else (value / target).toFloat().coerceIn(0f, 1f)
-
-            Text("${nm.label}: ${"%.1f".format(value)} / ${"%.1f".format(target)}")
-            LinearProgressIndicator(progress = { ratio }, modifier = Modifier.fillMaxWidth().height(8.dp))
-            Spacer(Modifier.height(8.dp))
+    val reachedGoals = remember(day) {
+        day?.let { summary ->
+            listOf("calories_kcal", "protein_g", "carbs_g", "fat_g").all { key ->
+                val target = summary.targetFor(key)
+                target > 0 && (summary.totals[key] ?: 0.0) >= target
+            }
+        } ?: false
+    }
+    var showCelebration by remember { mutableStateOf(false) }
+    LaunchedEffect(reachedGoals) {
+        if (reachedGoals) {
+            showCelebration = true
+            delay(3200)
+            showCelebration = false
+        } else {
+            showCelebration = false
         }
+    }
 
-        Spacer(Modifier.height(16.dp))
-        Text("记录明细（食物库映射）", fontWeight = FontWeight.Bold)
-        state.foods.forEach {
-            ElevatedCard(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("${it.food.name} · ${"%.0f".format(it.entry.amount_g)} g")
-                        val kcal = (it.entry.amount_g / 100.0) * it.food.calories_kcal_per_100g
-                        Text("≈ ${"%.0f".format(kcal)} kcal")
-                    }
-                    val scope = rememberCoroutineScope()
-                    Button(onClick = { scope.launch { vm.deleteEntry(it.entry.id) } }) { Text("删除") }
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item {
+                TodayHeroCover(
+                    today = today,
+                    summary = day,
+                    height = heroHeight,
+                    parallaxOffset = parallaxOffset
+                )
+            }
+
+            if (day == null) {
+                items(3) { index ->
+                    ShimmerPlaceholder(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(if (index == 0) 180.dp else 120.dp)
+                    )
+                }
+            } else {
+                item { KeyMetricsCard(summary = day) }
+
+                if (day.foods.isNotEmpty()) {
+                    item { SectionHeader(text = "记录明细（食物库映射）") }
+                }
+                items(day.foods, key = { it.entry.id }) { entry ->
+                    FoodEntryCard(entry = entry, vm = vm)
+                }
+
+                if (day.customs.isNotEmpty()) {
+                    item { SectionHeader(text = "记录明细（AI营养直加）") }
+                }
+                items(day.customs, key = { it.id }) { custom ->
+                    CustomEntryCard(entry = custom, vm = vm)
                 }
             }
         }
 
-        Spacer(Modifier.height(8.dp))
-        Text("记录明细（AI营养直加）", fontWeight = FontWeight.Bold)
-        state.customs.forEach {
-            ElevatedCard(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("${it.label} · ≈ ${"%.0f".format(it.calories_kcal)} kcal")
-                        Text("蛋白 ${it.protein_g} g | 碳水 ${it.carbs_g} g | 脂肪 ${it.fat_g} g")
-                        if (!it.notes.isNullOrBlank()) Text(it.notes!!)
+        if (showCelebration) {
+            CelebrationOverlay()
+        }
+    }
+}
+
+private data class FocusMetric(val key: String, val label: String, val unit: String)
+
+@Composable
+private fun TodayHeroCover(
+    today: String,
+    summary: DaySummary?,
+    height: Dp,
+    parallaxOffset: Float
+) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(36.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(height)
+            .graphicsLayer { translationY = parallaxOffset }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(shape)
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            colors.primary.copy(alpha = 0.9f),
+                            colors.primaryContainer.copy(alpha = 0.7f),
+                            colors.tertiary.copy(alpha = 0.65f)
+                        )
+                    )
+                )
+                .border(1.dp, colors.onPrimary.copy(alpha = 0.12f), shape)
+        ) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(Color.White.copy(alpha = 0.18f), Color.Transparent),
+                            center = Offset.Zero,
+                            radius = 900f
+                        )
+                    )
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp, vertical = 28.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text(
+                        text = "今日营养概览",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = colors.onPrimary.copy(alpha = 0.88f)
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = today,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.onPrimary
+                    )
+                }
+                summary?.let { data ->
+                    val calories = data.totals["calories_kcal"] ?: 0.0
+                    val goal = data.targetFor("calories_kcal")
+                    val completion = if (goal > 0) (calories / goal * 100).coerceAtMost(999.0) else 0.0
+                    Column {
+                        Text(
+                            text = "${"%.0f".format(calories)} kcal 已摄入",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = colors.onPrimary
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = if (goal > 0) "目标 ${"%.0f".format(goal)} kcal" else "未设置目标",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.onPrimary.copy(alpha = 0.85f)
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            HeroChip(
+                                title = "完成度",
+                                value = "${"%.0f".format(completion)}%",
+                                modifier = Modifier.weight(1f)
+                            )
+                            HeroChip(
+                                title = "记录项目",
+                                value = "${data.foods.size + data.customs.size}",
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
-                    val scope = rememberCoroutineScope()
-                    Button(onClick = { scope.launch { vm.deleteCustom(it.id) } }) { Text("删除") }
+                } ?: run {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(Color.White.copy(alpha = 0.08f))
+                    ) {
+                        Text(
+                            text = "同步今日数据中…",
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .padding(horizontal = 20.dp),
+                            color = colors.onPrimary.copy(alpha = 0.85f)
+                        )
+                    }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun HeroChip(title: String, value: String, modifier: Modifier = Modifier) {
+    GlassCard(
+        modifier = modifier.heightIn(min = 64.dp),
+        interactive = true,
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
+private fun KeyMetricsCard(summary: DaySummary) {
+    val focus = listOf(
+        FocusMetric("calories_kcal", "卡路里", "kcal"),
+        FocusMetric("protein_g", "蛋白质", "g"),
+        FocusMetric("carbs_g", "碳水", "g"),
+        FocusMetric("fat_g", "脂肪", "g")
+    )
+    val accent = listOf(
+        MaterialTheme.colorScheme.primary,
+        MaterialTheme.colorScheme.tertiary,
+        MaterialTheme.colorScheme.secondary,
+        MaterialTheme.colorScheme.inversePrimary
+    )
+
+    GlassCard(modifier = Modifier.fillMaxWidth(), interactive = true) {
+        Text(
+            text = "关键营养进度",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.height(16.dp))
+        val rows = focus.chunked(2)
+        rows.forEachIndexed { rowIndex, row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                row.forEach { metric ->
+                    val colorIndex = focus.indexOf(metric) % accent.size
+                    NutrientRingCard(summary = summary, metric = metric, color = accent[colorIndex])
+                }
+                if (row.size == 1) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+            if (rowIndex != rows.lastIndex) {
+                Spacer(Modifier.height(12.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.NutrientRingCard(summary: DaySummary, metric: FocusMetric, color: Color) {
+    val value = summary.totals[metric.key] ?: 0.0
+    val target = summary.targetFor(metric.key)
+    val progress = if (target > 0) (value / target).toFloat() else 0f
+
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .heightIn(min = 170.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        NutrientRing(progress = progress, color = color, modifier = Modifier.size(120.dp))
+        Spacer(Modifier.height(12.dp))
+        Text(metric.label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "${"%.0f".format(value)} ${metric.unit}",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = if (target > 0) "目标 ${"%.0f".format(target)} ${metric.unit}" else "未设置目标",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun NutrientRing(progress: Float, color: Color, modifier: Modifier = Modifier) {
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress.coerceAtLeast(0f),
+        animationSpec = tween(durationMillis = 850),
+        label = "ringProgress"
+    )
+
+    Canvas(modifier = modifier) {
+        val sweep = 270f
+        val startAngle = 135f
+        val strokeWidth = size.minDimension * 0.12f
+
+        drawArc(
+            color = color.copy(alpha = 0.15f),
+            startAngle = startAngle,
+            sweepAngle = sweep,
+            useCenter = false,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+        )
+
+        val clamped = animatedProgress.coerceAtMost(1f)
+        drawArc(
+            color = color,
+            startAngle = startAngle,
+            sweepAngle = sweep * clamped,
+            useCenter = false,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+        )
+
+        if (animatedProgress > 1f) {
+            val overflow = (animatedProgress - 1f).coerceAtMost(0.3f)
+            drawArc(
+                color = MaterialTheme.colorScheme.secondary,
+                startAngle = startAngle,
+                sweepAngle = sweep * overflow,
+                useCenter = false,
+                style = Stroke(width = strokeWidth * 0.6f, cap = StrokeCap.Round)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.9f)
+    )
+}
+
+@Composable
+private fun FoodEntryCard(entry: EntryWithFood, vm: MainViewModel) {
+    val scope = rememberCoroutineScope()
+    GlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        interactive = false
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = entry.food.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "份量 ${"%.0f".format(entry.entry.amount_g)} g",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(4.dp))
+                val kcal = (entry.entry.amount_g / 100.0) * entry.food.calories_kcal_per_100g
+                Text(
+                    text = "≈ ${"%.0f".format(kcal)} kcal",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            OutlinedButton(onClick = { scope.launch { vm.deleteEntry(entry.entry.id) } }) {
+                Text("删除")
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomEntryCard(entry: CustomEntry, vm: MainViewModel) {
+    val scope = rememberCoroutineScope()
+    GlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        interactive = false
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = entry.label,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "≈ ${"%.0f".format(entry.calories_kcal)} kcal",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "P ${"%.1f".format(entry.protein_g)} g | C ${"%.1f".format(entry.carbs_g)} g | F ${"%.1f".format(entry.fat_g)} g",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (!entry.notes.isNullOrBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = entry.notes!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            OutlinedButton(onClick = { scope.launch { vm.deleteCustom(entry.id) } }) {
+                Text("删除")
+            }
+        }
+    }
+}
+
+@Composable
+private fun GlassCard(
+    modifier: Modifier = Modifier,
+    interactive: Boolean = true,
+    shape: RoundedCornerShape = RoundedCornerShape(28.dp),
+    contentPadding: PaddingValues = PaddingValues(20.dp),
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val targetScale = if (interactive && pressed) 0.97f else 1f
+    val restingElevation = if (interactive) 18.dp else 12.dp
+    val targetElevation = if (interactive && pressed) 10.dp else restingElevation
+    val scale by animateFloatAsState(targetScale, animationSpec = tween(durationMillis = 180), label = "cardScale")
+    val elevation by animateDpAsState(targetElevation, animationSpec = tween(durationMillis = 180), label = "cardElevation")
+
+    val glassModifier = modifier
+        .graphicsLayer { scaleX = scale; scaleY = scale }
+        .shadow(elevation, shape, clip = false)
+        .clip(shape)
+        .background(
+            Brush.linearGradient(
+                colors = listOf(
+                    colors.surface.copy(alpha = 0.55f),
+                    colors.surfaceVariant.copy(alpha = 0.35f)
+                )
+            )
+        )
+        .border(1.dp, colors.onSurface.copy(alpha = 0.08f), shape)
+
+    val clickableModifier = if (interactive) {
+        Modifier.clickable(interactionSource = interactionSource, indication = null) {}
+    } else {
+        Modifier
+    }
+
+    Column(
+        modifier = glassModifier
+            .then(clickableModifier)
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.12f),
+                        Color.White.copy(alpha = 0.02f)
+                    )
+                )
+            )
+            .padding(contentPadding),
+        content = content
+    )
+}
+
+@Composable
+private fun ShimmerPlaceholder(
+    modifier: Modifier = Modifier,
+    shape: RoundedCornerShape = RoundedCornerShape(28.dp)
+) {
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    val translate by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerTranslate"
+    )
+    val baseColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+    val highlight = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(baseColor)
+            .drawBehind {
+                val brush = Brush.linearGradient(
+                    colors = listOf(baseColor, highlight, baseColor),
+                    start = Offset(translate - size.width, translate - size.height),
+                    end = Offset(translate, translate)
+                )
+                when (val outline = shape.toOutline(size, layoutDirection)) {
+                    is Outline.Rounded -> drawRoundRect(brush = brush, cornerRadius = outline.roundRect.cornerRadius)
+                    else -> drawRect(brush = brush)
+                }
+            }
+    )
+}
+
+@Composable
+private fun CelebrationOverlay() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.05f))
+    ) {
+        val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(R.raw.confetti))
+        val progress by animateLottieCompositionAsState(composition = composition, iterations = 1)
+        composition?.let {
+            LottieAnimation(
+                composition = it,
+                progress = { progress },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    }
+}
+
+private fun DaySummary.targetFor(key: String): Double = when (key) {
+    "calories_kcal" -> goal.calories_kcal
+    "protein_g" -> goal.protein_g
+    "carbs_g" -> goal.carbs_g
+    "fat_g" -> goal.fat_g
+    "fiber_g" -> goal.fiber_g
+    "sugar_g" -> goal.sugar_g
+    "sodium_mg" -> goal.sodium_mg
+    "calcium_mg" -> goal.calcium_mg
+    "iron_mg" -> goal.iron_mg
+    "vitamin_c_mg" -> goal.vitamin_c_mg
+    else -> 0.0
+} ?: 0.0
 
 @Composable
 fun AddEntryScreen(vm: MainViewModel) {
@@ -700,6 +1286,13 @@ fun AiScreen(vm: MainViewModel) {
         ) { Text(if (loading) "分析中…" else "开始分析（使用上方选择的 API）") }
 
 
+        if (loading) {
+            Spacer(Modifier.height(16.dp))
+            ShimmerPlaceholder(modifier = Modifier.fillMaxWidth().height(140.dp))
+            Spacer(Modifier.height(12.dp))
+            ShimmerPlaceholder(modifier = Modifier.fillMaxWidth().height(80.dp))
+        }
+
         if (error != null) {
             Spacer(Modifier.height(8.dp)); Text("错误：$error", color = MaterialTheme.colorScheme.error)
         }
@@ -718,14 +1311,28 @@ fun AiScreen(vm: MainViewModel) {
 
             val selections = remember(parsed) { mutableStateListOf<Boolean>().apply { repeat(parsed.items.size) { add(true) } } }
             parsed.items.forEachIndexed { idx, it ->
-                ElevatedCard(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-                    Column(Modifier.padding(12.dp)) {
+                GlassCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    interactive = false,
+                    contentPadding = PaddingValues(16.dp)
+                ) {
+                    Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(checked = selections[idx], onCheckedChange = { selections[idx] = it })
+                            Spacer(Modifier.width(8.dp))
                             Text("${it.name} · 估算 ${"%.0f".format(it.estimated_weight_g ?: 0.0)} g · 置信 ${"%.2f".format(it.confidence ?: 0.0)}")
                         }
-                        Text("≈ ${"%.0f".format(it.calories_kcal ?: 0.0)} kcal | P ${it.protein_g} g | C ${it.carbs_g} g | F ${it.fat_g} g")
-                        it.notes?.takeIf { s -> s.isNotBlank() }?.let { n -> Text(n) }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "≈ ${"%.0f".format(it.calories_kcal ?: 0.0)} kcal | P ${it.protein_g} g | C ${it.carbs_g} g | F ${it.fat_g} g",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        it.notes?.takeIf { s -> s.isNotBlank() }?.let { n ->
+                            Spacer(Modifier.height(4.dp))
+                            Text(n, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }
