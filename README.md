@@ -228,5 +228,3 @@ MIT（可按你需要替换）
 * Moonshot（Kimi）、Alibaba Cloud DashScope（Qwen）、Volcengine Ark（Doubao）
 
 ---
-
-有任何构建/运行问题，贴上 **报错截图 + 相关代码片段**（比如 `build.gradle.kts` 或某个文件前 30 行），我会按你的环境给出最快的修复指引。
